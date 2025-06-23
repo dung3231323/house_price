@@ -71,7 +71,7 @@ FROM staging.sales
 WHERE ISDATE(
     STUFF(STUFF(STUFF([date], 9, 0, ' '), 12, 0, ':'), 15, 0, ':')
 ) = 1;
-GO
+GO ;;;;;;;;;;;
 
 
 CREATE TABLE house_star.fact_house_sales (
