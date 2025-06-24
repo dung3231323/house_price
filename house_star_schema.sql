@@ -5,6 +5,7 @@ DROP TABLE IF EXISTS house_star.fact_house_sales;
 DROP TABLE IF EXISTS house_star.dim_time;
 DROP TABLE IF EXISTS house_star.dim_location;
 DROP TABLE IF EXISTS house_star.dim_house;
+
 GO
 -- 1.1 Tạo bảng dim_location với ID tự tăng
 CREATE TABLE house_star.dim_location (
@@ -59,23 +60,24 @@ CREATE TABLE house_star.dim_time (
 );
 INSERT INTO house_star.dim_time(sold_date, yr_built, yr_renovated)
 SELECT DISTINCT 
-    CONVERT(DATETIME, 
-        STUFF(
-            STUFF(
-                STUFF([date], 9, 0, ' '),     -- 20141107T -> 20141107 T
-                12, 0, ':'),                 -- ...000000 -> ...00:00:00
-            15, 0, ':'), 120),              -- kết quả: 2014-11-07 00:00:00
+    -- CONVERT(DATETIME, 
+    --     STUFF(
+    --         STUFF(
+    --             STUFF([date], 9, 0, ' '),     -- 20141107T -> 20141107 T
+    --             12, 0, ':'),                 -- ...000000 -> ...00:00:00
+    --         15, 0, ':'), 120),              -- kết quả: 2014-11-07 00:00:00
+    [date],
     yr_built,
     yr_renovated
 FROM staging.sales
-WHERE ISDATE(
-    STUFF(STUFF(STUFF([date], 9, 0, ' '), 12, 0, ':'), 15, 0, ':')
-) = 1;
-GO ;;;;;;;;;;;
+-- WHERE ISDATE(
+--     STUFF(STUFF(STUFF([date], 9, 0, ' '), 12, 0, ':'), 15, 0, ':')
+-- ) = 1;
+GO
 
 
 CREATE TABLE house_star.fact_house_sales (
-    sale_id INT PRIMARY KEY,
+    sale_id varchar(20) PRIMARY KEY,
     house_id INT FOREIGN KEY REFERENCES house_star.dim_house(house_id),
     location_id INT FOREIGN KEY REFERENCES house_star.dim_location(location_id),
     date_id INT FOREIGN KEY REFERENCES house_star.dim_time(date_id),
@@ -83,25 +85,52 @@ CREATE TABLE house_star.fact_house_sales (
 );
 GO
 
--- Giả sử staging.sales có cột `id` là khóa chính gốc
+
+-- INSERT INTO house_star.fact_house_sales(sale_id, house_id, location_id, date_id, price)
+-- SELECT 
+--     s.id,
+--     h.house_id,
+--     l.location_id,
+--     t.date_id,
+--     s.price
+-- FROM staging.sales s
+-- JOIN house_star.dim_house h
+--     ON s.bedrooms = h.bedrooms AND s.bathrooms = h.bathrooms AND s.floors = h.floors
+--        AND s.sqft_living = h.sqft_living AND s.sqft_lot = h.sqft_lot
+--        AND s.sqft_above = h.sqft_above AND s.sqft_basement = h.sqft_basement
+--        AND s.waterfront = h.waterfront AND s.[view] = h.[view] AND s.[condition] = h.[condition]
+--        AND s.grade = h.grade AND s.sqft_living15 = h.sqft_living15 AND s.sqft_lot15 = h.sqft_lot15
+-- JOIN house_star.dim_location l
+--     ON s.zipcode = l.zipcode AND s.lat = l.lat AND s.long = l.long
+-- JOIN house_star.dim_time t
+--     ON s.[date] = t.sold_date AND s.yr_built = t.yr_built AND s.yr_renovated = t.yr_renovated;
+-- GO
+
+WITH ranked_sales AS (
+    SELECT 
+        s.id AS sale_id,
+        h.house_id,
+        l.location_id,
+        t.date_id,
+        s.price,
+        ROW_NUMBER() OVER (PARTITION BY s.id ORDER BY t.date_id) AS rn
+    FROM staging.sales s
+    JOIN house_star.dim_house h
+        ON s.bedrooms = h.bedrooms AND s.bathrooms = h.bathrooms AND s.floors = h.floors
+           AND s.sqft_living = h.sqft_living AND s.sqft_lot = h.sqft_lot
+           AND s.sqft_above = h.sqft_above AND s.sqft_basement = h.sqft_basement
+           AND s.waterfront = h.waterfront AND s.[view] = h.[view] AND s.[condition] = h.[condition]
+           AND s.grade = h.grade AND s.sqft_living15 = h.sqft_living15 AND s.sqft_lot15 = h.sqft_lot15
+    JOIN house_star.dim_location l
+        ON s.zipcode = l.zipcode AND s.lat = l.lat AND s.long = l.long
+    JOIN house_star.dim_time t
+        ON s.[date] = t.sold_date AND s.yr_built = t.yr_built AND s.yr_renovated = t.yr_renovated
+)
+
 INSERT INTO house_star.fact_house_sales(sale_id, house_id, location_id, date_id, price)
-SELECT 
-    s.id,
-    h.house_id,
-    l.location_id,
-    t.date_id,
-    s.price
-FROM staging.sales s
-JOIN house_star.dim_house h
-    ON s.bedrooms = h.bedrooms AND s.bathrooms = h.bathrooms AND s.floors = h.floors
-       AND s.sqft_living = h.sqft_living AND s.sqft_lot = h.sqft_lot
-       AND s.sqft_above = h.sqft_above AND s.sqft_basement = h.sqft_basement
-       AND s.waterfront = h.waterfront AND s.[view] = h.[view] AND s.[condition] = h.[condition]
-       AND s.grade = h.grade AND s.sqft_living15 = h.sqft_living15 AND s.sqft_lot15 = h.sqft_lot15
-JOIN house_star.dim_location l
-    ON s.zipcode = l.zipcode AND s.lat = l.lat AND s.long = l.long
-JOIN house_star.dim_time t
-    ON s.[date] = t.sold_date AND s.yr_built = t.yr_built AND s.yr_renovated = t.yr_renovated;
-GO
+SELECT sale_id, house_id, location_id, date_id, price
+FROM ranked_sales
+WHERE rn = 1;
+
 
 
